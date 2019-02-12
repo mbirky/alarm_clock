@@ -1,0 +1,9 @@
+# Google credentials
+credentials.json
+token.pickle
+
+# Configuration
+.calendar_id
+
+# vscode settings
+.vscode/*
