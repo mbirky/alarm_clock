@@ -3,6 +3,7 @@ import datetime
 import pickle
 import os.path
 import subprocess
+import argparse
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -11,11 +12,35 @@ from google.auth.transport.requests import Request
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 
-def main(calendar_id):
+def main(service, calendar_id, quiet):
     """
     Start the process of reading the next calendar entry from a google clander
     and then starting rhythmbox whenever an event starts.
     """
+    next_update_time = datetime.datetime.now()
+    next_alarm = None
+    previous_alarm = None
+
+    while True:
+        now = datetime.datetime.now()
+
+        # Check if alarm should go off
+        if next_alarm and now >= next_alarm:
+            print(f"Alarm at: {datetime.datetime.now()}")
+            if not quiet:
+                subprocess.Popen(["/usr/bin/rhythmbox-client", "--play"])
+            previous_alarm = next_alarm
+            next_alarm = None
+
+        # Update the next alarm time
+        if now > next_update_time:
+            print(f"Update at: {now}")
+            next_alarm = get_next_event(service, calendar_id)
+            if next_alarm == previous_alarm:
+                next_alarm = None
+            next_update_time = now + datetime.timedelta(minutes=5)
+
+def create_service():
     creds = None
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -34,30 +59,7 @@ def main(calendar_id):
         with open("token.pickle", "wb") as token:
             pickle.dump(creds, token)
 
-    service = build("calendar", "v3", credentials=creds)
-
-    next_update_time = datetime.datetime.now()
-    next_alarm = None
-    previous_alarm = None
-
-    while True:
-        now = datetime.datetime.now()
-
-        # Check if alarm should go off
-        if next_alarm and now >= next_alarm:
-            print(f"Alarm at: {datetime.datetime.now()}")
-            subprocess.Popen(["/usr/bin/rhythmbox-client", "--play"])
-            previous_alarm = next_alarm
-            next_alarm = None
-
-        # Update the next alarm time
-        if now > next_update_time:
-            print(f"Update at: {now}")
-            next_alarm = get_next_event(service, calendar_id)
-            if next_alarm == previous_alarm:
-                next_alarm = None
-            next_update_time = now + datetime.timedelta(minutes=5)
-
+    return build("calendar", "v3", credentials=creds)
 
 def get_next_event(service, calendar_id):
     """
@@ -85,10 +87,33 @@ def get_next_event(service, calendar_id):
         return datetime.datetime.strptime(event_time[:-6], "%Y-%m-%dT%H:%M:%S")
     return None
 
+def get_calanders(service):
+    calendars_result = (
+        service.calendarList()
+        .list()
+        .execute()
+    )
+    return calendars_result.get("items", [])
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="An alarm clock set by Google Calander")
+    parser.add_argument('-q', '--quiet', action="store_true",
+                        help="Music will not play when an alarm goes off")
+    parser.add_argument('-l', '--list', action="store_true",
+                        help="list avalible calanders")
+    
+    args = parser.parse_args()
+
+    service = create_service()
+
+    if args.list:
+        print("Calendar Summary: Calendar ID")
+        for calendar in get_calanders(service):
+            print(f"{calendar['summary']}: {calendar['id']}")
+        exit()
+
     calendar_id = ""
     with open(".calendar_id", "r") as file:
         calendar_id = file.readline()
 
-    main(calendar_id)
+    main(service, calendar_id, args.quiet)
