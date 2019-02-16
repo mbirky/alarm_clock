@@ -100,7 +100,8 @@ if __name__ == "__main__":
     parser.add_argument('-q', '--quiet', action="store_true",
                         help="Music will not play when an alarm goes off")
     parser.add_argument('-l', '--list', action="store_true",
-                        help="list avalible calanders")
+                        help="List avalible calanders")
+    parser.add_argument('-c', '--calendar-id', help="Specify the calendar id")
     
     args = parser.parse_args()
 
@@ -113,7 +114,14 @@ if __name__ == "__main__":
         exit()
 
     calendar_id = ""
-    with open(".calendar_id", "r") as file:
-        calendar_id = file.readline()
+    if args.calendar_id:
+        calendar_id = args.calendar_id
+    else:
+        try:
+            with open(".calendar_id", "r") as file:
+                calendar_id = file.readline()
+        except FileNotFoundError:
+            print("A calendar id is required as an argument or in the .calendar_id file")
+            exit(2)
 
     main(service, calendar_id, args.quiet)
