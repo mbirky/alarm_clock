@@ -5,11 +5,9 @@ import os.path
 import subprocess
 import argparse
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-
-# If modifying these scopes, delete the file token.pickle.
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 
 def main(service, calendar_id, quiet):
@@ -40,7 +38,11 @@ def main(service, calendar_id, quiet):
                 next_alarm = None
             next_update_time = now + datetime.timedelta(minutes=5)
 
+
 def create_service():
+    # If modifying these scopes, delete the file token.pickle.
+    scopes = ["https://www.googleapis.com/auth/calendar.readonly"]
+
     creds = None
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
@@ -53,7 +55,7 @@ def create_service():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", scopes)
             creds = flow.run_local_server()
         # Save the credentials for the next run
         with open("token.pickle", "wb") as token:
@@ -61,25 +63,29 @@ def create_service():
 
     return build("calendar", "v3", credentials=creds)
 
+
 def get_next_event(service, calendar_id):
     """
     Gets the next event in the google calendar and then returns either a
     datetime of the start date, or None if no mare events.
     """
     now = datetime.datetime.utcnow().isoformat() + "Z"  # 'Z' indicates UTC time
-    alarm_calendar_id = calendar_id
 
-    events_result = (
-        service.events()
-        .list(
-            calendarId=alarm_calendar_id,
-            timeMin=now,
-            maxResults=1,
-            singleEvents=True,
-            orderBy="startTime",
+    try:
+        events_result = (
+            service.events()
+            .list(
+                calendarId=calendar_id,
+                timeMin=now,
+                maxResults=1,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
         )
-        .execute()
-    )
+    except HttpError:
+        print("There was an HTTP error. Check your Calender ID and internet connection")
+        exit(111)
     events = events_result.get("items", [])
 
     if events:
@@ -87,22 +93,27 @@ def get_next_event(service, calendar_id):
         return datetime.datetime.strptime(event_time[:-6], "%Y-%m-%dT%H:%M:%S")
     return None
 
+
 def get_calanders(service):
-    calendars_result = (
-        service.calendarList()
-        .list()
-        .execute()
-    )
+    calendars_result = service.calendarList().list().execute()
     return calendars_result.get("items", [])
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="An alarm clock set by Google Calander")
-    parser.add_argument('-q', '--quiet', action="store_true",
-                        help="Music will not play when an alarm goes off")
-    parser.add_argument('-l', '--list', action="store_true",
-                        help="List avalible calanders")
-    parser.add_argument('-c', '--calendar-id', help="Specify the calendar id")
-    
+    parser = argparse.ArgumentParser(
+        description="An alarm clock set by Google Calander"
+    )
+    parser.add_argument("-c", "--calendar-id", help="Specify the calendar id")
+    parser.add_argument(
+        "-l", "--list", action="store_true", help="List avalible calanders"
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Music will not play when an alarm goes off",
+    )
+
     args = parser.parse_args()
 
     service = create_service()
@@ -121,7 +132,9 @@ if __name__ == "__main__":
             with open(".calendar_id", "r") as file:
                 calendar_id = file.readline()
         except FileNotFoundError:
-            print("A calendar id is required as an argument or in the .calendar_id file")
+            print(
+                "A calendar id is required as an argument or in the .calendar_id file"
+            )
             exit(2)
 
     main(service, calendar_id, args.quiet)
